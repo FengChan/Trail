@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>事项追踪 · 本地文件版</title>
+<link rel="stylesheet" href="styles.css?v=20260922">
+</head>
+<body>
+
+<!-- ============ 顶部功能栏 ============ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◆</span>
+    <span class="name">事项追踪</span>
+    <span class="tag">本地 JSON 文件存储</span>
+  </div>
+
+  <div class="top-actions">
+    <button class="btn primary" id="btnNew">＋ 新增事件</button>
+    <button class="btn" id="btnImport">导入数据文件</button>
+    <button class="btn" id="btnExport">导出备份文件</button>
+    <button class="btn" id="btnAllLogs">全部日志</button>
+    <div class="fileinfo" id="fileInfo" title="点击连接 / 切换数据文件">
+      <span class="dot" id="saveDot"></span>
+      <span id="fileText">未连接数据文件</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ 搜索 / 筛选 / 排序 ============ -->
+<section class="toolbar">
+  <div class="search-box">
+    <span class="search-icon">🔍</span>
+    <input id="searchInput" type="text" placeholder="模糊搜索：标题 / 描述 / 分类">
+    <button class="clear-btn" id="clearSearch" title="清空">×</button>
+  </div>
+
+  <select id="filterStatus" class="select"></select>
+  <select id="filterCategory" class="select"></select>
+
+  <div class="sort-group">
+    <select id="sortBy" class="select">
+      <option value="createTime">按创建时间</option>
+      <option value="deadline">按截止时间</option>
+      <option value="progress">按进度</option>
+    </select>
+    <button class="btn small" id="sortOrder" title="切换升序 / 降序">降序 ↓</button>
+  </div>
+
+  <label class="auto-dl" title="未连接文件时，每次改动自动下载最新 JSON 文件">
+    <input type="checkbox" id="autoDownload"> 自动下载
+  </label>
+</section>
+
+<!-- ============ 环境提示（file:// 打开或浏览器不支持时） ============ -->
+<div class="restore-bar warn-bar" id="protoBar" hidden>
+  <span class="rb-icon">⚠️</span>
+  <span id="protoText"></span>
+</div>
+
+<!-- ============ 记住上次的数据文件（刷新后一键恢复） ============ -->
+<div class="restore-bar" id="restoreBar" hidden>
+  <span class="rb-icon">📌</span>
+  <span id="restoreText"></span>
+  <button class="btn small primary" id="btnRestore">恢复连接</button>
+  <button class="btn small" id="btnForget">忘记该文件</button>
+</div>
+
+<!-- ============ 统计概览 ============ -->
+<section class="stats" id="stats"></section>
+
+<!-- ============ 事件卡片列表 ============ -->
+<main class="list" id="eventList"></main>
+
+<!-- 空状态 -->
+<div class="empty" id="emptyState" hidden>
+  <div class="empty-icon">🗂️</div>
+  <p class="empty-title">还没有任何事件</p>
+  <p class="empty-desc">点击右上角「新增事件」创建第一条事项，或导入已有的 JSON 数据文件。</p>
+  <button class="btn primary" id="emptyNew">＋ 新增事件</button>
+</div>
+
+<!-- 底部提示条 -->
+<footer class="footbar">
+  <span id="footText">数据仅保存在你选择的本地 JSON 文件中，不使用浏览器缓存、不联网、无后端。</span>
+</footer>
+
+<!-- 隐藏的文件选择器（Firefox 等不支持 File System Access API 时使用） -->
+<input type="file" id="fileInput" accept=".json,application/json" hidden>
+
+<!-- ============ 弹窗：数据源（首次进入） ============ -->
+<div class="modal" id="modalSource" hidden>
+  <div class="mask"></div>
+  <div class="dialog">
+    <div class="dialog-head"><h3>选择数据文件</h3></div>
+    <div class="dialog-body">
+      <p class="tip" id="sourceTip">本工具不使用浏览器缓存，数据全部存放在你自己指定的本地 JSON 文件中。</p>
+      <div class="source-actions">
+        <button class="source-card" id="srcNew">
+          <b>新建空白数据文件</b>
+          <span>在你的电脑上创建一个 JSON 文件并持续写入</span>
+        </button>
+        <button class="source-card" id="srcImport">
+          <b>导入已有数据文件</b>
+          <span>选择之前导出的 JSON 文件，还原全部事件与日志</span>
+        </button>
+      </div>
+      <button class="link-btn" id="srcLater">暂不选择，先试用（数据需手动导出保存）</button>
+      <button class="link-btn danger" id="srcForget" hidden>忘记已记住的文件</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗：新增 / 编辑事件 ============ -->
+<div class="modal" id="modalEvent" hidden>
+  <div class="mask"></div>
+  <div class="dialog">
+    <div class="dialog-head"><h3 id="eventModalTitle">新增事件</h3></div>
+    <div class="dialog-body">
+      <div class="field">
+        <label>事件标题 <em>*</em></label>
+        <input id="fTitle" type="text" maxlength="80" placeholder="必填，例如：修复客户反馈的登录异常">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>事件分类</label>
+          <input id="fCategory" type="text" list="categoryList" maxlength="30" placeholder="选填，例如：客户问题">
+          <datalist id="categoryList"></datalist>
+        </div>
+        <div class="field">
+          <label>截止时间</label>
+          <input id="fDeadline" type="datetime-local">
+        </div>
+      </div>
+      <div class="field">
+        <label>事件描述</label>
+        <textarea id="fDesc" rows="3" maxlength="1000" placeholder="选填，补充背景、影响范围等信息"></textarea>
+      </div>
+      <div class="row2" id="editOnlyRow">
+        <div class="field">
+          <label>事件状态</label>
+          <select id="fStatus" class="select"></select>
+        </div>
+        <div class="field">
+          <label>完成进度（0-100）</label>
+          <div class="progress-input">
+            <input id="fProgress" type="number" min="0" max="100" step="1" value="0">
+            <span>%</span>
+          </div>
+        </div>
+      </div>
+      <p class="err" id="eventError" hidden></p>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close>取消</button>
+      <button class="btn primary" id="saveEvent">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗：添加进度 ============ -->
+<div class="modal" id="modalProgress" hidden>
+  <div class="mask"></div>
+  <div class="dialog">
+    <div class="dialog-head"><h3 id="progressModalTitle">进度跟进</h3></div>
+    <div class="dialog-body">
+      <div class="row2">
+        <div class="field">
+          <label>当前进度（0-100）</label>
+          <div class="progress-input">
+            <input id="pValue" type="number" min="0" max="100" step="1" value="0">
+            <span>%</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>快速设置</label>
+          <div class="quick" id="quickProgress">
+            <button data-v="0">0%</button><button data-v="25">25%</button>
+            <button data-v="50">50%</button><button data-v="75">75%</button>
+            <button data-v="100">100%</button>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>跟进备注 <em>*</em></label>
+        <textarea id="pContent" rows="3" maxlength="500" placeholder="必填，例如：已联系供应商，预计周五到货"></textarea>
+      </div>
+      <p class="err" id="progressError" hidden></p>
+
+      <div class="sub-title">历史进度记录（倒序，不可删除）</div>
+      <div class="mini-list" id="progressHistory"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close>关闭</button>
+      <button class="btn primary" id="saveProgress">提交跟进</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗：事件详情 / 日志 ============ -->
+<div class="modal" id="modalDetail" hidden>
+  <div class="mask"></div>
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h3 id="detailTitle">事件详情</h3>
+    </div>
+    <div class="dialog-body">
+      <div class="tabs" id="detailTabs">
+        <button class="tab active" data-tab="info">基本信息</button>
+        <button class="tab" data-tab="progress">进度日志</button>
+        <button class="tab" data-tab="log">操作日志</button>
+      </div>
+      <div class="tab-panel" id="panel-info"></div>
+      <div class="tab-panel" id="panel-progress" hidden></div>
+      <div class="tab-panel" id="panel-log" hidden></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗：全部日志 ============ -->
+<div class="modal" id="modalLogs" hidden>
+  <div class="mask"></div>
+  <div class="dialog wide">
+    <div class="dialog-head"><h3>全部操作日志</h3></div>
+    <div class="dialog-body">
+      <input id="logSearch" class="select" style="width:100%" placeholder="搜索日志：事件名称 / 操作类型 / 变更内容">
+      <div class="mini-list tall" id="allLogList"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 弹窗：通用确认 ============ -->
+<div class="modal" id="modalConfirm" hidden>
+  <div class="mask"></div>
+  <div class="dialog narrow">
+    <div class="dialog-head"><h3 id="confirmTitle">操作确认</h3></div>
+    <div class="dialog-body"><p id="confirmText" class="confirm-text"></p></div>
+    <div class="dialog-foot">
+      <button class="btn" id="confirmCancel">取消</button>
+      <button class="btn danger" id="confirmOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 轻提示 -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="app.js?v=20260922"></script>
+</body>
+</html>
